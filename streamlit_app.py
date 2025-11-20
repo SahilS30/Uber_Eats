@@ -1,12 +1,13 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# ----------------------------------------------
-# LOAD DATA
-# ----------------------------------------------
-st.title("Restaurant & Menu Analytics Dashboard")
+# ----------------------------------------------------
+# Load Data
+# ----------------------------------------------------
+st.title("Restaurant & Menu Analytics Dashboard (No Plotly Version)")
 
 @st.cache_data
 def load_data():
@@ -14,94 +15,92 @@ def load_data():
     df_menu = pd.read_csv("restaurant-menus.csv")
 
     # Clean price
-    df_menu['price'] = df_menu['price'].str.replace(" USD", "").astype(float)
+    df_menu["price"] = df_menu["price"].str.replace(" USD", "").astype(float)
 
-    # Split category
-    df['category'] = df['category'].str.split(", ").apply(lambda x: [i.strip() for i in x])
-    df['price_range_numeric'] = df['price_range'].map({'$':1,'$$':2,'$$$':3,'$$$$':4,'Unknown':0})
+    # Category split
+    df["category"] = df["category"].str.split(", ").apply(lambda x: [i.strip() for i in x])
+    df["price_range_numeric"] = df["price_range"].map({"$":1,"$$":2,"$$$":3,"$$$$":4,"Unknown":0})
 
     return df, df_menu
 
 df, df_menu = load_data()
 
-# ------------------------------------------------
-# MERGE DATA
-# ------------------------------------------------
+# ----------------------------------------------------
+# Merge
+# ----------------------------------------------------
 df_merge = pd.merge(df, df_menu, left_on="id", right_on="restaurant_id", how="inner")
-
-# Compute engineered feature
 df_merge["description"] = df_merge["description"].fillna("No description")
 df_merge["description_length"] = df_merge["description"].apply(len)
 
-# ------------------------------------------------
-# SIDEBAR FILTERS
-# ------------------------------------------------
+# ----------------------------------------------------
+# Filters
+# ----------------------------------------------------
 st.sidebar.header("Filters")
 
 cities = sorted(df_merge["city"].dropna().unique()) if "city" in df_merge else []
-selected_city = st.sidebar.selectbox("Select City (if available)", ["All"] + cities)
+selected_city = st.sidebar.selectbox("Select City", ["All"] + cities)
 
-cuisines = sorted(df_merge["category_y"].dropna().unique())
-selected_cuisine = st.sidebar.selectbox("Select Menu Category", ["All"] + cuisines)
+categories = sorted(df_merge["category_y"].dropna().unique())
+selected_cat = st.sidebar.selectbox("Select Menu Category", ["All"] + categories)
 
-# Filter data
-filtered_df = df_merge.copy()
+filtered = df_merge.copy()
 if selected_city != "All" and "city" in df_merge.columns:
-    filtered_df = filtered_df[filtered_df["city"] == selected_city]
+    filtered = filtered[filtered["city"] == selected_city]
 
-if selected_cuisine != "All":
-    filtered_df = filtered_df[filtered_df["category_y"] == selected_cuisine]
+if selected_cat != "All":
+    filtered = filtered[filtered["category_y"] == selected_cat]
 
 st.subheader("Filtered Dataset Preview")
-st.dataframe(filtered_df.head())
+st.dataframe(filtered.head())
 
-# ------------------------------------------------
-# SECTION 1: PRICE DISTRIBUTION
-# ------------------------------------------------
+# ----------------------------------------------------
+# PRICE DISTRIBUTION (Matplotlib)
+# ----------------------------------------------------
 st.subheader("Price Distribution")
 
-fig1 = px.histogram(filtered_df, x="price", nbins=50, title="Menu Price Distribution")
-st.plotly_chart(fig1, use_container_width=True)
+fig, ax = plt.subplots(figsize=(8,4))
+sns.histplot(filtered["price"], bins=40, kde=True, ax=ax)
+ax.set_title("Menu Item Price Distribution")
+ax.set_xlabel("Price")
+ax.set_ylabel("Count")
+st.pyplot(fig)
 
-# ------------------------------------------------
-# SECTION 2: AVERAGE PRICE BY CUISINE
-# ------------------------------------------------
-st.subheader("Average Price by Cuisine")
+# ----------------------------------------------------
+# AVERAGE PRICE BY CATEGORY (Bar Chart)
+# ----------------------------------------------------
+st.subheader("Average Price by Category")
 
-avg_price = (
-    filtered_df.groupby("category_y")["price"]
-    .mean()
-    .sort_values(ascending=False)
-    .reset_index()
-)
+avg_cat = filtered.groupby("category_y")["price"].mean().sort_values(ascending=False)
 
-fig2 = px.bar(avg_price, x="category_y", y="price", title="Average Price by Category")
-st.plotly_chart(fig2, use_container_width=True)
+fig, ax = plt.subplots(figsize=(8,5))
+avg_cat.plot(kind="bar", ax=ax, color="skyblue")
+ax.set_title("Average Price per Menu Category")
+ax.set_xlabel("Category")
+ax.set_ylabel("Average Price")
+plt.xticks(rotation=45)
+st.pyplot(fig)
 
-# ------------------------------------------------
-# SECTION 3: RATING VS PRICE SCATTER
-# ------------------------------------------------
-st.subheader("Rating vs Menu Item Price")
+# ----------------------------------------------------
+# RATING VS PRICE SCATTER
+# ----------------------------------------------------
+st.subheader("Rating vs Price")
 
-if "score" in filtered_df.columns:
-    fig3 = px.scatter(
-        filtered_df,
-        x="score",
-        y="price",
-        color="category_y",
-        hover_data=["name_x"],
-        title="Score vs Price"
-    )
-    st.plotly_chart(fig3, use_container_width=True)
+if "score" in filtered:
+    fig, ax = plt.subplots(figsize=(8,5))
+    ax.scatter(filtered["score"], filtered["price"], alpha=0.5)
+    ax.set_xlabel("Score")
+    ax.set_ylabel("Price")
+    ax.set_title("Score vs Price Scatter Plot")
+    st.pyplot(fig)
 
-# ------------------------------------------------
-# SECTION 4: CITY-LEVEL PRICE VARIATION
-# ------------------------------------------------
+# ----------------------------------------------------
+# CITY PRICE VARIATION TABLE
+# ----------------------------------------------------
+st.subheader("City-Level Price Variation")
+
 if "city" in df_merge.columns:
-    st.subheader("City-level Price Variation")
-
     variation_city = (
-        df_merge.groupby(["city"])["price"]
+        df_merge.groupby("city")["price"]
         .agg(["mean", "std", "min", "max", "count"])
         .sort_values("mean", ascending=False)
         .reset_index()
@@ -109,13 +108,15 @@ if "city" in df_merge.columns:
 
     st.dataframe(variation_city)
 
-    fig4 = px.bar(variation_city.head(15), x="city", y="mean",
-                  title="Top 15 Cities by Avg Price")
-    st.plotly_chart(fig4, use_container_width=True)
+    fig, ax = plt.subplots(figsize=(8,5))
+    sns.barplot(data=variation_city.head(10), x="city", y="mean", ax=ax)
+    ax.set_title("Top 10 Cities by Avg Price")
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+    st.pyplot(fig)
 
-# ------------------------------------------------
-# SECTION 5: UNDERPRICED vs OVERPRICED ITEMS
-# ------------------------------------------------
+# ----------------------------------------------------
+# UNDERPRICED & OVERPRICED ITEMS
+# ----------------------------------------------------
 st.subheader("Underpriced & Overpriced Items")
 
 df_merge["benchmark_price"] = df_merge.groupby("category_y")["price"].transform("mean")
@@ -127,31 +128,35 @@ overpriced = df_merge[df_merge["price_gap"] > 1][["name_x","price","price_gap","
 tab1, tab2 = st.tabs(["Underpriced Items", "Overpriced Items"])
 
 with tab1:
-    st.write("Items priced WELL BELOW category average")
+    st.write("Items priced far BELOW category avg")
     st.dataframe(underpriced)
 
 with tab2:
-    st.write("Items priced ABOVE category average")
+    st.write("Items priced ABOVE category avg")
     st.dataframe(overpriced)
 
-# ------------------------------------------------
-# SECTION 6: MENU SIZE ANALYSIS
-# ------------------------------------------------
-st.subheader("Menu Size Analysis")
+# ----------------------------------------------------
+# MENU SIZE ANALYSIS
+# ----------------------------------------------------
+st.subheader("Menu Size per Restaurant")
 
-menu_size = df_merge.groupby("restaurant_id")["name_y"].count().reset_index()
-menu_size.columns = ["restaurant_id", "menu_size"]
+menu_size = df_merge.groupby("restaurant_id")["name_y"].count()
 
-fig5 = px.histogram(menu_size, x="menu_size", title="Menu Size Distribution")
-st.plotly_chart(fig5, use_container_width=True)
+fig, ax = plt.subplots(figsize=(8,4))
+sns.histplot(menu_size, bins=40, kde=True, ax=ax)
+ax.set_title("Distribution of Menu Sizes")
+ax.set_xlabel("Menu Size (# items)")
+st.pyplot(fig)
 
-# ------------------------------------------------
-# SUMMARY
-# ------------------------------------------------
-st.subheader("Summary Insights")
+# ----------------------------------------------------
+# Summary
+# ----------------------------------------------------
+st.subheader("Insight Summary")
 st.write("""
-- High-price variation across categories and cities shows strong regional influence.
-- Underpriced items often have high customer ratings → missed revenue opportunities.
-- Overpriced items frequently correlate with lower ratings → poor value perception.
-- Menu size does not strongly affect ratings or pricing — quality matters more.
+### Key Insights  
+- Price variation across cities is very high, showing regional influence.  
+- Many underpriced items have high ratings → revenue opportunity.  
+- Overpriced items often correlate with lower ratings → weak value perception.  
+- Menu size has weak correlation with rating or pricing → quality > quantity.  
 """)
+
